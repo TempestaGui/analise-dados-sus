@@ -1,0 +1,4 @@
+pysus==1.0.1
+pandas==2.3.3
+pyarrow==23.0.1
+fastparquet==2024.11.0
