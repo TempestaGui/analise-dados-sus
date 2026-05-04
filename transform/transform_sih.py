@@ -195,8 +195,7 @@ def transform_SIH(dataframe, uf_lookup, cid10_lookup):
             how="left"
         )
         diag_cols_desc.append(f"{col}_desc")
-    dataframe["Qtd_Comorb"] = dataframe[diag_cols[1:]].notna().sum(axis=1)
-    dataframe["Qtd_Comorb"] = dataframe["Qtd_Comorb"].apply(pd.to_numeric, errors="raise").astype("int8")
+    dataframe["Qtd_Comorb"] = dataframe[diag_cols_desc[1:]].notna().sum(axis=1)
     for col in diag_cols:
         print(dataframe[col].value_counts(dropna=False))
         print(f"> Quantidade de NaN: {dataframe[col].isna().sum()}")
