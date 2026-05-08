@@ -1,2 +1,5 @@
 venv/
+venv/pyvenv.cfg
 .vscode/
+data/intermediate/
+lookup/data/transform/

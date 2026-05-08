@@ -2,104 +2,108 @@ import os
 import pandas as pd
 import numpy as np
 
-INPUT_PATH = "analise-dados-sus/data/raw/datasus"
-OUTPUT_PATH = "analise-dados-sus/data/transform"
-UF_ZI_LIST = "analise-dados-sus/lookup/data/transform/lista_municipios.parquet"
-CID_10_LIST = "analise-dados-sus/lookup/data/transform/cid10_completo.parquet"
-TRANSFORM_FILENAME = "sih_transformado.parquet"
-TRASH_FILENAME = "sih_lixo.parquet"
+# Para rodar esse codigo certifique-se que esse arquivos existem, caso 
+# nao existem rode os codigos de lookup e concat
 
-def load_SIH(directory):
-    if not os.path.isdir(directory):
-        print("> Diretorio de entrada nao foi encontrado.")
+SIH_PATH = "analise-dados-sus/data/intermediate/sih_raw_concat.parquet"
+UF_ZI_PATH = "analise-dados-sus/lookup/data/transform/tabela_municipios.parquet"
+CID_10_PATH = "analise-dados-sus/lookup/data/transform/tabela_cid10.parquet"
+CNES_PATH = "analise-dados-sus/lookup/data/transform/tabela_cnes.parquet"
+ESPEC_PATH = "analise-dados-sus/lookup/data/transform/tabela_espec.parquet"
+OUTPUT_PATH = "analise-dados-sus/data/transform"
+
+OUTPUT_FILENAME = "sih_transformado.parquet"
+
+COLUMNS = ['UF_ZI', 'COD_IDADE', 'IDADE', 'SEXO', 'RACA_COR',
+           'CAR_INT', 'MORTE', 'DIAG_PRINC', 'DIAGSEC1', 'DIAGSEC2',
+           'DIAGSEC3', 'DIAGSEC4', 'DIAGSEC5', 'DIAGSEC6', 
+           'DIAGSEC7', 'DIAGSEC8', 'DIAGSEC9', 'CNES', 'ESPEC']
+
+def load_parquet(path, columns=None):
+    print(f"> Tentando ler \"{path}\"...")
+    if not os.path.isfile(path):
+        print(f"> Arquivo \"{path}\" nao foi encontrado.")
         return None
     
-    columns = ['UF_ZI', 'COD_IDADE', 'IDADE', 'SEXO', 'RACA_COR',
-               'CAR_INT', 'MORTE', 'DIAG_PRINC', 'DIAGSEC1', 'DIAGSEC2', 
-               'DIAGSEC3', 'DIAGSEC4', 'DIAGSEC5', 'DIAGSEC6', 
-               'DIAGSEC7', 'DIAGSEC8', 'DIAGSEC9', 'CNES']
-
-    dataframes = []
-
-    print("> Lendo arquivos parquet...")
-    for root, dirs, files in os.walk(directory):
-        print("> Diretorio Atual:", root)
-
-        for f in files:
-            if f.endswith(".parquet"):
-                path = os.path.join(root, f)
-                try:
-                    dataframe = pd.read_parquet(path, engine="pyarrow", columns=columns)
-
-                    if not set(columns).issubset(dataframe.columns):
-                        print(">> Colunas necessarias nao foram encontradas no arquivo.")
-                        continue
-
-                    dataframes.append(dataframe)
-                except Exception as e:
-                    print(f">> Falha ao ler arquivo: {path} | Exception: {e}")
-                    continue
-    if dataframes:
-        print("> Concatenando arquivos parquet...")
-        return pd.concat(dataframes, ignore_index=True)
-    else:
-        print("> Nenhum arquivo parquet encontrado.")
+    try:
+        dataframe = pd.read_parquet(path, engine="pyarrow", columns=columns)
+        print(f"> \"{path}\" lido com sucesso!")
+        return dataframe
+    except Exception as e:
+        print(f">> Falha ao ler arquivo: {path}")
+        print(f">> Exception: {e}")
         return None
 
-def transform_SIH(dataframe, uf_lookup, cid10_lookup):
-    numeric_cols = ['UF_ZI', 'COD_IDADE', 'IDADE', 'SEXO', "RACA_COR", 'CAR_INT']
-    dataframe[numeric_cols] = dataframe[numeric_cols].apply(pd.to_numeric, errors="raise").astype("int64")
+# Ta feio, ainda preciso mudar essa verificacao
+def is_dataframe_empty(name, dataframe):
+    if dataframe is None or dataframe.empty:
+        print(f"> Dataframe {name} vazio.")
+        return True
+    return False
 
-    print("> Transformando UF_ZI...")
-    print(dataframe["UF_ZI"].value_counts(dropna=False))
-    dataframe = dataframe.merge(
-        uf_lookup[['UF_ZI', 'Nome_UF', 'Nome_Município']],
-        on='UF_ZI',
-        how='left'
-    )
-    print(dataframe["Nome_UF"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["Nome_UF"].isna().sum()}")
-    print(dataframe["Nome_Município"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["Nome_Município"].isna().sum()}")
-    dataframe[["Nome_UF","Nome_Município"]] = dataframe[["Nome_UF","Nome_Município"]].astype("category")
-    dataframe = dataframe.drop(columns="UF_ZI")
-    print()
+def transform_sih_df(dataframe,uf_zi_df,cid_10_df,cnes_df,espec_df):
+    # Ta feio, ainda preciso mudar essa verificacao
+    if is_dataframe_empty("dataframe", dataframe):
+        return None
+    if is_dataframe_empty("uf_zi_df", uf_zi_df):
+        return None
+    if is_dataframe_empty("cid_10_df", cid_10_df):
+        return None
+    if is_dataframe_empty("cnes_df", cnes_df):
+        return None
+    if is_dataframe_empty("espec_df", espec_df):
+        return None
 
-    print("> Transformando IDADE...")
-    cod_idade_values = [
-        sih["COD_IDADE"] == 2,
-        sih["COD_IDADE"] == 3,
-        sih["COD_IDADE"] == 4,
-        sih["COD_IDADE"] == 5
+    for col in dataframe.columns:
+        dataframe = dataframe.rename(columns={col:col.lower()})
+
+    print(f"> Quantidade de linhas: {len(dataframe)}")
+    print("> Fazendo deduplicacao exata...")
+    dataframe = dataframe.drop_duplicates()
+    print(f"> Quantidade de linhas: {len(dataframe)}")
+
+    print("> Transformando uf_zi para nome_uf e nome_municipio...")
+    dataframe = dataframe.merge(uf_zi_df,how="left",on="uf_zi")
+    dataframe = dataframe.drop(columns="uf_zi")
+
+    print("> Transformando cod_idade e idade para idade_meses e idade_anos...")
+    dataframe[["cod_idade","idade"]] = dataframe[["cod_idade","idade"]].apply(pd.to_numeric, errors="raise").astype("Int64")
+    cod_idade_conditions = [
+        dataframe["cod_idade"] == 2,
+        dataframe["cod_idade"] == 3,
+        dataframe["cod_idade"] == 4,
+        dataframe["cod_idade"] == 5,
     ]
-    age_years = [
+    idade_meses = [
+        0,
+        dataframe["idade"],
+        dataframe["idade"] * 12,
+        (dataframe["idade"] + 100) * 12,
+    ]
+    idade_anos = [
         0,
         0,
-        sih["IDADE"],
-        sih["IDADE"] + 100
+        dataframe["idade"],
+        dataframe["idade"] + 100,
     ]
-    age_months = [
-        0,
-        sih["IDADE"],
-        sih["IDADE"] * 12,
-        (sih["IDADE"] + 100) * 12
-    ]
-    dataframe["Idade_Anos"] = np.select(cod_idade_values, age_years, default=None)
-    dataframe["Idade_Meses"] = np.select(cod_idade_values, age_months, default=None)
-    dataframe["Idade_Meses"] = dataframe["Idade_Meses"].apply(pd.to_numeric, errors="raise").astype("int16")
-    dataframe["Idade_Anos"] = dataframe["Idade_Anos"].apply(pd.to_numeric, errors="raise").astype("int16")
-    dataframe = dataframe.drop(columns=["COD_IDADE","IDADE"])
+    dataframe["idade_meses"] = np.select(cod_idade_conditions,idade_meses,default=None)
+    dataframe["idade_meses"] = pd.to_numeric(dataframe["idade_meses"], errors='coerce')
+    dataframe["idade_anos"] = np.select(cod_idade_conditions,idade_anos,default=None)
+    dataframe["idade_anos"] = pd.to_numeric(dataframe["idade_anos"], errors='coerce')
+    dataframe = dataframe.drop(columns=["cod_idade","idade"])
+
+    print("> Criando faixa etaria...")
     age_bins = [
-        0,    
-        1,    
-        24,   
-        108,  
-        228,  
-        468,  
-        708,  
-        888,  
-        1068, 
-        float("inf")
+            0,    
+            1,    
+            24,   
+            108,  
+            228,  
+            468,  
+            708,  
+            888,  
+            1068, 
+            float("inf")
     ]
     age_labels = [
         "Recem-Nascido",
@@ -107,117 +111,106 @@ def transform_SIH(dataframe, uf_lookup, cid10_lookup):
         "Criança",
         "Adolescente",
         "Adulto Jovem",
-        "Meia-Idade",
+        "Meia-idade",
         "Idoso Jovem",
         "Idoso",
         "Muito Idoso / Longevo"
     ]
-    dataframe["Faixa_Etaria"] = pd.cut(
-        dataframe["Idade_Meses"],
+    dataframe["faixa_etaria"] = pd.cut(
+        dataframe["idade_meses"],
         bins=age_bins,
         labels=age_labels,
         right=True,
         include_lowest=True
     )
-    print(dataframe["Faixa_Etaria"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["Faixa_Etaria"].isna().sum()}")
-    print(dataframe["Idade_Anos"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["Idade_Anos"].isna().sum()}")
-    print(dataframe["Idade_Meses"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["Idade_Meses"].isna().sum()}")
 
-    print("> Transformando SEXO...")
-    print(dataframe["SEXO"].value_counts(dropna=False))
-    dataframe["SEXO"] = dataframe["SEXO"].map({
-        1:"Masculino",
-        3:"Feminino"
+    print("> Transformando sexo...")
+    dataframe["sexo"] = dataframe["sexo"].map({
+        "1":"Masculino",
+        "2":"Feminino",
+        "3":"Feminino"
     })
-    print(dataframe["SEXO"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["SEXO"].isna().sum()}")
-    dataframe["SEXO"] = dataframe["SEXO"].astype("category")
-    print()
+    dataframe["sexo"] = dataframe["sexo"].astype("category")
 
-    print("> Transformando RACA_COR...")
-    print(dataframe["RACA_COR"].value_counts(dropna=False))
-    dataframe["RACA_COR"] = dataframe["RACA_COR"].map({
-        1:"Branca",
-        2:"Preta",
-        3:"Parda",
-        4:"Amarela",
-        5:"Indígena"
+    print("> Transformando raca_cor...")
+    dataframe["raca_cor"] = dataframe["raca_cor"].map({
+        "01":"Branca",
+        "02":"Preta",
+        "03":"Parda",
+        "04":"Amarela",
+        "05":"Indígena"
     })
-    print(dataframe["RACA_COR"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["RACA_COR"].isna().sum()}")
-    dataframe["RACA_COR"] = dataframe["RACA_COR"].astype("category")
-    print()
+    dataframe = dataframe.dropna(subset=["raca_cor"])
+    dataframe["raca_cor"] = dataframe["raca_cor"].astype("category")
 
-    print("> Transformando CAR_INT...")
-    print(dataframe["CAR_INT"].value_counts(dropna=False))
-    car_groups = {  
-        "Eletiva": [1, 11],
-        "Emergência": [2, 3, 5, 20, 21],
-        "Internação de alta complexidade": [4, 41],
-        "Acidente": [6, 7, 8, 9, 26, 27, 28, 29]
-    }
-    car_map = { 
-        code: group
-        for group, codes in car_groups.items()
-        for code in codes
-    }
-    dataframe["CAR_INT"] = dataframe["CAR_INT"].map(car_map)
-    print(dataframe["CAR_INT"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["CAR_INT"].isna().sum()}")
-    dataframe["CAR_INT"] = dataframe["CAR_INT"].astype("category")
-    print()
-
-    print("> Transformando MORTE...")
-    print(dataframe["MORTE"].value_counts(dropna=False))
-    dataframe['MORTE'] = dataframe["MORTE"].map({
-        '0':False,
-        '1':True
+    print("> Transformando car_int...")
+    dataframe["car_int"] = dataframe["car_int"].map({
+        "01": "Eletivo",
+        "02": "Urgência",
+        "03": "Acidente no local trabalho ou a serviço da empresa",
+        "04": "Acidente no trajeto para o trabalho",
+        "05": "Outros tipos de acidente de trânsito",
+        "06": "Outros tipos de lesões, intoxicações ou envenenamentos causados por agentes químicos ou físicos."
     })
-    print(dataframe["MORTE"].value_counts(dropna=False))
-    print(f"> Quantidade de NaN: {dataframe["MORTE"].isna().sum()}")
-    print()
+    dataframe["car_int"] = dataframe["car_int"].astype("category")
 
-    print("> Transformando Diagnosticos...")
-    diag_cols = ['DIAG_PRINC', 'DIAGSEC1', 'DIAGSEC2', 'DIAGSEC3', 'DIAGSEC4',
-                    'DIAGSEC5', 'DIAGSEC6', 'DIAGSEC7', 'DIAGSEC8', 'DIAGSEC9']
-    diag_cols_desc = []
+    print("> Transformando morte...")
+    dataframe["morte"] = dataframe["morte"].map({
+        "0": False,
+        "1": True,
+    })
+
+    print("> Transformando diagnosticos...")
+    diag_cols = ['diag_princ', 'diagsec1', 'diagsec2', 'diagsec3', 'diagsec4',
+                 'diagsec5', 'diagsec6', 'diagsec7', 'diagsec8', 'diagsec9']
+
     for col in diag_cols:
-        dataframe[col] = dataframe[col].str.replace(r"\s+", "", regex=True)
+        print(f"> Criando descrição de {col}...")
+        dataframe[col] = dataframe[col].str.strip()
+        dataframe[col] = dataframe[col].replace("", pd.NA)
         dataframe = dataframe.merge(
-            cid10_lookup.rename(columns={
-                "Codigo": col,
-                "DESCRICAO": f"{col}_desc"
+            cid_10_df.rename(columns={
+                "codigo":col,
+                "descricao":f"{col}_desc"
             }),
-            on=col,
-            how="left"
+            how="left",
+            on=col
         )
-        diag_cols_desc.append(f"{col}_desc")
-    dataframe["Qtd_Comorb"] = dataframe[diag_cols_desc[1:]].notna().sum(axis=1)
-    for col in diag_cols:
-        print(dataframe[col].value_counts(dropna=False))
-        print(f"> Quantidade de NaN: {dataframe[col].isna().sum()}")
-    for col in diag_cols_desc:
-        print(dataframe[col].value_counts(dropna=False))
-        print(f"> Quantidade de NaN: {dataframe[col].isna().sum()}")
+    dataframe["qtd_comorb"] = dataframe[diag_cols[1:]].notna().sum(axis=1)
 
-    dataframe = dataframe[
-        ['Idade_Meses', 'Idade_Anos', 'Faixa_Etaria', 'SEXO', 'RACA_COR', 'CAR_INT', 'MORTE', 'Qtd_Comorb'] +
-        diag_cols_desc +
-        ['Nome_UF', 'Nome_Município', 'CNES'] +
-        diag_cols
-    ]
+    print("> Obtendo nomes de hospitais...")
+    dataframe = dataframe.merge(cnes_df,how="left",on="cnes")
+
+    print("> Traduzindo especialidades de leito...")
+    dataframe = dataframe.merge(espec_df,how="left",on="espec")
+    dataframe = dataframe.drop(columns="espec")
+    dataframe = dataframe.rename(columns={"desc_espec":"espec"})
+    dataframe["espec"] = dataframe["espec"].astype("category")
+
+    print("> Reorganizando colunas...")
+    new_order = ["idade_meses","idade_anos","faixa_etaria","sexo",
+                 "raca_cor","morte","car_int","espec","qtd_comorb",
+                 "diag_princ_desc","diagsec1_desc","diagsec2_desc",
+                 "diagsec3_desc","diagsec4_desc","diagsec5_desc",
+                 "diagsec6_desc","diagsec7_desc","diagsec8_desc",
+                 "diagsec9_desc","nome_hosp","nome_municipio","nome_uf",
+                 "diag_princ","diagsec1","diagsec2","diagsec3","diagsec4",
+                 "diagsec5","diagsec6","diagsec7","diagsec8","diagsec9",
+                 "cnes"]
+    dataframe = dataframe[[col for col in new_order if col in dataframe.columns]]
+
     return dataframe
     
-def clean_SIH(dataframe):
+def clean_sih_df(dataframe):
+    if dataframe is None or dataframe.empty:
+        print("> Dataframe vazio.")
+        return
+    
     # Algumas AIHs, estao em varias tabelas em diferentes meses mas no mesmo UF.
     # Por isso uma grande reducao nas linhas. Nao sei se deve manter, por 
     # enquanto eu nao vou.
     print(f"> Quantidade de linhas: {len(dataframe)}")
-    print("> Deletando duplicacoes exatas...") 
-    trash = dataframe[dataframe.duplicated(keep=False)]
+    print("> Deletando duplicacoes exatas...")
     dataframe = dataframe.drop_duplicates()
     print(f"> Quantidade de linhas: {len(dataframe)}")
 
@@ -225,34 +218,52 @@ def clean_SIH(dataframe):
     dataframe = dataframe.replace(r'^\s*$', pd.NA, regex=True)
     dataframe = dataframe.dropna(axis=1, how="all")
 
-    print("> Removendo linhas não válidas...")
+    print("> Removendo linhas com valores criticos vazios...")
     print(f"> Quantidade de linhas: {len(dataframe)}")
-    not_null_cols = [
-        'Idade_Meses', 'Idade_Anos', 'Faixa_Etaria', 'SEXO', 'RACA_COR',
-        'CAR_INT', 'MORTE', 'Qtd_Comorb', 'DIAG_PRINC_desc', 'Nome_UF', 
-        'Nome_Município', 'CNES', 'DIAG_PRINC'
-    ]
-    trash = dataframe[dataframe[not_null_cols].isna().any(axis=1)]
-    dataframe = dataframe.dropna(subset=not_null_cols)
+    critical_cols = ["idade_meses","idade_anos","faixa_etaria","sexo",
+             "raca_cor","morte","car_int","espec","qtd_comorb",
+             "diag_princ_desc","nome_hosp","nome_municipio","nome_uf",
+             "diag_princ","cnes"]
+    dataframe = dataframe.dropna(subset=critical_cols)
     print(f"> Quantidade de linhas: {len(dataframe)}")
 
-    dataframe["Idade_Anos"] = dataframe["Idade_Anos"].apply(pd.to_numeric, errors="raise").astype("uint8")
-    return dataframe, trash
+    print("> Removendo idades muito grandes...")
+    dataframe = dataframe[dataframe["idade_anos"] <= 122]
+    print(f"> Quantidade de linhas: {len(dataframe)}")
 
-uf_zi_list = pd.read_parquet(UF_ZI_LIST, engine="pyarrow")
-cid_10 = pd.read_parquet(CID_10_LIST, engine="pyarrow")
+    return dataframe
 
-sih = load_SIH(INPUT_PATH)
-sih.info()
-sih = transform_SIH(sih,uf_zi_list,cid_10)
-sih, trash = clean_SIH(sih)
+def write_dataframe(dataframe):
+    if dataframe is None or dataframe.empty:
+        print("> Dataframe vazio.")
+        return
+    
+    os.makedirs(OUTPUT_PATH, exist_ok=True)
+    dataframe.to_parquet(OUTPUT_PATH + "/" + OUTPUT_FILENAME,engine="pyarrow",index=False)
 
-print(sih.shape)
-print(sih.isna().sum())
-sih.info()
+if __name__ == "__main__":
+    uf_zi_df = load_parquet(UF_ZI_PATH)
+    cid_10_df = load_parquet(CID_10_PATH)
+    cnes_df = load_parquet(CNES_PATH)
+    espec_df = load_parquet(ESPEC_PATH)
+    sih_df = load_parquet(SIH_PATH,COLUMNS)
 
-print(sih.isna().any())
+    sih_df = transform_sih_df(sih_df,uf_zi_df,cid_10_df,cnes_df,espec_df)
+    sih_df = clean_sih_df(sih_df)
 
-sih = sih.sort_values(by="Qtd_Comorb", ascending=False)
-sih.to_parquet(OUTPUT_PATH + "/" +  TRANSFORM_FILENAME, engine="pyarrow", index=False)
-trash.to_parquet(OUTPUT_PATH + "/" +  TRASH_FILENAME, engine="pyarrow", index=False)
+    try:
+        sih_df = sih_df.sort_values(by="qtd_comorb", ascending=False)
+
+        pd.set_option('display.max_columns', None)
+        print(sih_df.head())
+        sih_df.info()
+        print(sih_df.shape)
+        print(sih_df.isna().sum())
+        print(sih_df.isna().any())
+    except Exception as e:
+        print("> Erro na exploracao do dataframe.")
+        print(f"> Exception: {e}")
+
+    write_dataframe(sih_df)
+
+    # discrepancias entre diags e diags_descs, resolver isso mais tarde
