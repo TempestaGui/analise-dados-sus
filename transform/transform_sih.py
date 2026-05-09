@@ -5,7 +5,7 @@ import numpy as np
 # Para rodar esse codigo certifique-se que esse arquivos existem, caso 
 # nao existem rode os codigos de lookup e concat
 
-SIH_PATH = "analise-dados-sus/data/intermediate/sih_raw_concat.parquet"
+SIH_PATH = "analise-dados-sus/data/raw/datasus"
 UF_ZI_PATH = "analise-dados-sus/lookup/data/transform/tabela_municipios.parquet"
 CID_10_PATH = "analise-dados-sus/lookup/data/transform/tabela_cid10.parquet"
 CNES_PATH = "analise-dados-sus/lookup/data/transform/tabela_cnes.parquet"
@@ -18,6 +18,36 @@ COLUMNS = ['UF_ZI', 'COD_IDADE', 'IDADE', 'SEXO', 'RACA_COR',
            'CAR_INT', 'MORTE', 'DIAG_PRINC', 'DIAGSEC1', 'DIAGSEC2',
            'DIAGSEC3', 'DIAGSEC4', 'DIAGSEC5', 'DIAGSEC6', 
            'DIAGSEC7', 'DIAGSEC8', 'DIAGSEC9', 'CNES', 'ESPEC']
+
+def load_SIH(directory, columns=None):
+    if not os.path.isdir(directory):
+        print("> Diretorio de entrada nao foi encontrado.")
+        return None
+
+    dataframes = []
+
+    print("> Lendo arquivos parquet...")
+    for root, dirs, files in os.walk(directory):
+
+        for f in files:
+            if f.endswith(".parquet"):
+                path = os.path.join(root, f)
+                try:
+                    dataframe = pd.read_parquet(path, engine="pyarrow", columns=columns)
+
+                    dataframes.append(dataframe)
+                except Exception as e:
+                    print(f">> Falha ao ler arquivo: {path}")
+                    print(f">> Exception: {e}")
+                    continue
+    print(f"> {len(dataframes)} arquivos lidos.")
+
+    if dataframes:
+        print("> Concatenando arquivos parquet...")
+        return pd.concat(dataframes, ignore_index=True)
+    else:
+        print("> Nenhum arquivo parquet encontrado.")
+        return None
 
 def load_parquet(path, columns=None):
     print(f"> Tentando ler \"{path}\"...")
@@ -246,7 +276,7 @@ if __name__ == "__main__":
     cid_10_df = load_parquet(CID_10_PATH)
     cnes_df = load_parquet(CNES_PATH)
     espec_df = load_parquet(ESPEC_PATH)
-    sih_df = load_parquet(SIH_PATH,COLUMNS)
+    sih_df = load_SIH(SIH_PATH,COLUMNS)
 
     sih_df = transform_sih_df(sih_df,uf_zi_df,cid_10_df,cnes_df,espec_df)
     sih_df = clean_sih_df(sih_df)
